@@ -1,7 +1,6 @@
 AC_PREREQ(2.52)
 m4_include([version.m4])
 m4_include([m4/c99-backport.m4])
-m4_include([m4/ax_shenango.m4])
 AC_INIT([memcached], [VERSION_NUMBER], [memcached@googlegroups.com])
 AC_CANONICAL_HOST
 AC_CONFIG_SRCDIR([memcached.c])
@@ -236,11 +235,6 @@ AC_SEARCH_LIBS(clock_gettime, rt)
 #            for libevent (to help people linking with static libevent)
 AC_SEARCH_LIBS(socket, socket)
 AC_SEARCH_LIBS(gethostbyname, nsl)
-
-AX_SHENANGO
-AC_SUBST([SHEN_CPPFLAGS])
-AC_SUBST([SHEN_LDFLAGS])
-AC_SUBST([SHEN_LIBS])
 
 
 AC_SEARCH_LIBS(umem_cache_create, umem)

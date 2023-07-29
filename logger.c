@@ -23,15 +23,18 @@
 #define L_DEBUG(...)
 #endif
 
+static logger *logger_stack;
+
 
 /* TODO: put this in a struct and ditch the global vars. */
-static struct rcu_hlist_head logger_stack;
+// static struct rcu_hlist_head logger_stack;
 //static logger *logger_stack_head = NULL;
 //static logger *logger_stack_tail = NULL;
 static unsigned int logger_count = 0;
 static volatile int do_run_logger_thread = 1;
-static waitgroup_t logger_wg;
-static DEFINE_SPINLOCK(logger_stack_lock);
+// static waitgroup_t logger_wg;
+static mutex_t logger_stack_lock;
+
 
 #if !defined(HAVE_GCC_64ATOMICS) && !defined(__sun)
 mutex_t logger_atomics_mutex;
@@ -107,7 +110,9 @@ static void logger_link_q(logger *l) {
     spin_lock_np(&logger_stack_lock);
     //assert(l != logger_stack_head);
 
-    rcu_hlist_add_head(&logger_stack, &l->rculink);
+    l->link = logger_stack;
+    logger_stack = l;
+    // rcu_hlist_add_head(&logger_stack, &l->rculink);
     logger_count++;
     spin_unlock_np(&logger_stack_lock);
     return;
@@ -149,12 +154,13 @@ static void logger_set_flags(void) {
 
         f |= w->eflags;
     }
-	struct rcu_hlist_node *n;
-	rcu_hlist_for_each(&logger_stack, n, true) {
-	l = rcu_hlist_entry(n, logger, rculink);
-	mutex_lock(&l->mutex);
+
+    l = logger_stack;
+    while (l) {
+    	mutex_lock(&l->mutex);
         l->eflags = f;
         mutex_unlock(&l->mutex);
+        l = l->link;
     }
     return;
 }
@@ -377,6 +383,7 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
     return size; /* maybe the count of objects iterated? */
 }
 
+#if 0
 static int flush_udp(unsigned char *data, unsigned int data_size, conn *c)
 {
     int total = data_size, ret, tosend, done = 0;
@@ -391,6 +398,7 @@ static int flush_udp(unsigned char *data, unsigned int data_size, conn *c)
     } while (data_size - done > 0);
     return total;
 }
+#endif
 
 /* Since the event loop code isn't reusable without a refactor, and we have a
  * limited number of potential watchers, we run our own poll loop.
@@ -483,9 +491,10 @@ static int logger_thread_poll_watchers(int force_poll, int watcher) {
                         total = fwrite(data, 1, data_size, stderr);
                         break;
                     case LOGGER_WATCHER_CLIENT:
-                        if (IS_UDP(((conn *)w->c)->transport))
-                            total = flush_udp(data, data_size, w->c);
-                        else
+                        if (IS_UDP(((conn *)w->c)->transport)) {
+                            abort();
+                            // total = flush_udp(data, data_size, w->c);
+                        } else
                             BUG(); // TODO
                         break;
                 }
@@ -524,7 +533,7 @@ static void logger_thread_sum_stats(struct logger_stats *ls) {
 #define MIN_LOGGER_SLEEP 1000
 
 /* Primary logger thread routine */
-static void logger_thread(void *arg) {
+static void *logger_thread(void *arg) {
     useconds_t to_sleep = MIN_LOGGER_SLEEP;
     L_DEBUG("LOGGER: Starting logger thread\n");
     while (do_run_logger_thread) {
@@ -538,10 +547,10 @@ static void logger_thread(void *arg) {
             timer_sleep(to_sleep);
 
         /* Call function to iterate each logger. */
-	struct rcu_hlist_node *n;
-        rcu_hlist_for_each(&logger_stack, n, true) {
-		l = rcu_hlist_entry(n, logger, rculink);
-	            found_logs += logger_thread_read(l, &ls);
+        l = logger_stack;
+        while (l) {
+            found_logs += logger_thread_read(l, &ls);
+            l = l->link;
         }
 
         logger_thread_poll_watchers(1, WATCHER_ALL);
@@ -561,19 +570,23 @@ static void logger_thread(void *arg) {
         logger_thread_sum_stats(&ls);
     }
 
-    waitgroup_done(&logger_wg);
+    return NULL;
+    // waitgroup_done(&logger_wg);
 }
 
 int start_logger_thread(void) {
     int ret;
     do_run_logger_thread = 1;
-    waitgroup_init(&logger_wg);
-    waitgroup_add(&logger_wg, 1);
-    if ((ret = thread_spawn(logger_thread, NULL)) != 0) {
-        fprintf(stderr, "Can't start logger thread: %s\n", strerror(ret));
-        waitgroup_done(&logger_wg);
-        return -1;
-    }
+    pthread_t thread;
+    // waitgroup_init(&logger_wg);
+    // waitgroup_add(&logger_wg, 1);
+    ret = pthread_create(&thread, NULL, logger_thread, NULL);
+    BUG_ON(ret);
+    // if ((ret = thread_spawn(logger_thread, NULL)) != 0) {
+    //     fprintf(stderr, "Can't start logger thread: %s\n", strerror(ret));
+    //     // waitgroup_done(&logger_wg);
+    //     return -1;
+    // }
     return 0;
 }
 
@@ -599,7 +612,7 @@ void logger_init(void) {
 
     spin_lock_init(&logger_stack_lock);
     mutex_init(&logger_atomics_mutex);
-    rcu_hlist_init_head(&logger_stack);
+    // rcu_hlist_init_head(&logger_stack);
 
     /* This can be removed once the global stats initializer is improved */
     stats.log_worker_dropped = 0;

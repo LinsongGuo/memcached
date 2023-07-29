@@ -18,7 +18,9 @@
 #include <time.h>
 #include <unistd.h>
 
-static waitgroup_t lru_maintainer_thread_wg;
+
+
+static pthread_t lru_maintainer_thread_wg;
 
 /* Forward Declarations */
 static void item_link_q(item *it);
@@ -97,7 +99,7 @@ typedef struct {
 
 static lru_bump_buf *bump_buf_head = NULL;
 static lru_bump_buf *bump_buf_tail = NULL;
-static DEFINE_SPINLOCK(bump_buf_lock);
+static spinlock_t bump_buf_lock;
 /* TODO: tunable? Need bench results */
 #define LRU_BUMP_BUF_SIZE 8192
 
@@ -1532,7 +1534,7 @@ slab_automove_reg_t slab_automove_extstore = {
 #define MAX_LRU_MAINTAINER_SLEEP 1000000
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
-static void lru_maintainer_thread(void *arg) {
+static void *lru_maintainer_thread(void *arg) {
     slab_automove_reg_t *sam = &slab_automove_default;
 #ifdef EXTSTORE
     void *storage = arg;
@@ -1665,7 +1667,8 @@ static void lru_maintainer_thread(void *arg) {
     if (settings.verbose > 2)
         fprintf(stderr, "LRU maintainer thread stopping\n");
 
-    waitgroup_done(&lru_maintainer_thread_wg);
+    return NULL;
+    // waitgroup_done(&lru_maintainer_thread_wg);
 
 }
 
@@ -1674,7 +1677,9 @@ int stop_lru_maintainer_thread(void) {
     /* LRU thread is a sleep loop, will die on its own */
     do_run_lru_maintainer_thread = 0;
     mutex_unlock(&lru_maintainer_lock);
-    waitgroup_wait(&lru_maintainer_thread_wg);
+
+    pthread_join(lru_maintainer_thread_wg, NULL);
+    // waitgroup_wait(&lru_maintainer_thread_wg);
 
     settings.lru_maintainer_thread = false;
     return 0;
@@ -1686,15 +1691,17 @@ int start_lru_maintainer_thread(void *arg) {
     mutex_lock(&lru_maintainer_lock);
     do_run_lru_maintainer_thread = 1;
     settings.lru_maintainer_thread = true;
-    waitgroup_init(&lru_maintainer_thread_wg);
-    waitgroup_add(&lru_maintainer_thread_wg, 1);
-    if ((ret = thread_spawn(lru_maintainer_thread, arg)) != 0) {
-        fprintf(stderr, "Can't create LRU maintainer thread: %s\n",
-            strerror(ret));
-        mutex_unlock(&lru_maintainer_lock);
-        waitgroup_done(&lru_maintainer_thread_wg);
-        return -1;
-    }
+    // waitgroup_init(&lru_maintainer_thread_wg);
+    // waitgroup_add(&lru_maintainer_thread_wg, 1);
+    ret = pthread_create(&lru_maintainer_thread_wg, NULL, lru_maintainer_thread, arg);
+    BUG_ON(ret);
+    // if ((ret = thread_spawn(lru_maintainer_thread, arg)) != 0) {
+    //     fprintf(stderr, "Can't create LRU maintainer thread: %s\n",
+    //         strerror(ret));
+    //     mutex_unlock(&lru_maintainer_lock);
+    //     waitgroup_done(&lru_maintainer_thread_wg);
+    //     return -1;
+    // }
     mutex_unlock(&lru_maintainer_lock);
 
     return 0;

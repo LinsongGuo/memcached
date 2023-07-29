@@ -17,8 +17,8 @@
 #include <string.h>
 #include <signal.h>
 
-static waitgroup_t slab_thread_wg;
-
+// static waitgroup_t slab_thread_wg;
+static pthread_t slab_thread_wg;
 //#define DEBUG_SLAB_MOVER
 /* powers-of-N allocation structures */
 
@@ -1137,7 +1137,7 @@ static void slab_rebalance_finish(void) {
 /* Slab mover thread.
  * Sits waiting for a condition to jump off and shovel some memory about
  */
-static void slab_rebalance_thread(void *arg) {
+static void *slab_rebalance_thread(void *arg) {
     int was_busy = 0;
     /* So we first pass into cond_wait with the mutex held */
     mutex_lock(&slabs_rebalance_lock);
@@ -1167,7 +1167,9 @@ static void slab_rebalance_thread(void *arg) {
             condvar_wait(&slab_rebalance_cond, &slabs_rebalance_lock);
         }
     }
-    waitgroup_done(&slab_thread_wg);
+
+    return NULL;
+    // waitgroup_done(&slab_thread_wg);
 }
 
 /* Iterate at most once through the slab classes and pick a "random" source.
@@ -1258,13 +1260,15 @@ int start_slab_maintenance_thread(void) {
     condvar_init(&slab_rebalance_cond);
     mutex_init(&slabs_rebalance_lock);
 
-    waitgroup_init(&slab_thread_wg);
-    waitgroup_add(&slab_thread_wg, 1);
-    if ((ret = thread_spawn(slab_rebalance_thread, NULL)) != 0) {
-        fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
-        waitgroup_done(&slab_thread_wg);
-        return -1;
-    }
+    // waitgroup_init(&slab_thread_wg);
+    // waitgroup_add(&slab_thread_wg, 1);
+    ret = pthread_create(&slab_thread_wg, NULL, slab_rebalance_thread, NULL);
+    BUG_ON(ret);
+    // if ((ret = thread_spawn(slab_rebalance_thread, NULL)) != 0) {
+    //     fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
+    //     // waitgroup_done(&slab_thread_wg);
+    //     return -1;
+    // }
     return 0;
 }
 
@@ -1276,5 +1280,5 @@ void stop_slab_maintenance_thread(void) {
     do_run_slab_rebalance_thread = 0;
     condvar_signal(&slab_rebalance_cond);
     mutex_unlock(&slabs_rebalance_lock);
-    waitgroup_wait(&slab_thread_wg);
+    pthread_join(slab_thread_wg, NULL);
 }

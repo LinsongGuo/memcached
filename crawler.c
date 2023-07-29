@@ -96,7 +96,7 @@ static condvar_t  lru_crawler_cond;
 /* TODO: pass this around */
 static void *storage;
 #endif
-static waitgroup_t item_crawler_wg;
+static pthread_t item_crawler_wg;
 
 
 /* Will crawl all slab classes a minimum of once per hour */
@@ -312,18 +312,19 @@ static int lru_crawler_poll(crawler_client_t *c) {
 #endif
             int total = 0;
             if (IS_UDP(((conn *)c->c)->transport)) {
-                int ret, tosend, done = 0;
-                do {
-                    tosend = MIN(data_size - done, UDP_MAX_PAYLOAD);
-                    ret = udp_respond(data + done, tosend, ((conn *)c->c)->spawn_data);
-                    if (ret > 0)
-                        total += ret;
-                    else
-                        total = ret;
-                    if (ret != tosend)
-                        break;
-                    done += tosend;
-                } while (data_size - done > 0);
+                abort();
+                // int ret, tosend, done = 0;
+                // do {
+                //     tosend = MIN(data_size - done, UDP_MAX_PAYLOAD);
+                //     ret = udp_respond(data + done, tosend, ((conn *)c->c)->spawn_data);
+                //     if (ret > 0)
+                //         total += ret;
+                //     else
+                //         total = ret;
+                //     if (ret != tosend)
+                //         break;
+                //     done += tosend;
+                // } while (data_size - done > 0);
             } else {
                 BUG();
             }
@@ -375,7 +376,7 @@ static void lru_crawler_class_done(int i) {
         active_crawler_mod.mod->doneclass(&active_crawler_mod, i);
 }
 
-static void item_crawler_thread(void *arg) {
+static void *item_crawler_thread(void *arg) {
     int i;
     int crawls_persleep = settings.crawls_persleep;
 
@@ -486,7 +487,8 @@ static void item_crawler_thread(void *arg) {
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread stopping\n");
 
-    waitgroup_done(&item_crawler_wg);
+    return NULL;
+    // waitgroup_done(&item_crawler_wg);
 }
 
 
@@ -495,7 +497,8 @@ int stop_item_crawler_thread(void) {
     do_run_lru_crawler_thread = 0;
     condvar_signal(&lru_crawler_cond);
     mutex_unlock(&lru_crawler_lock);
-    waitgroup_wait(&item_crawler_wg);
+    pthread_join(item_crawler_wg, NULL);
+    // waitgroup_wait(&item_crawler_wg);
     settings.lru_crawler = false;
     return 0;
 }
@@ -512,21 +515,22 @@ int stop_item_crawler_thread(void) {
  * thread is now safely waiting on condition before the caller returns.
  */
 int start_item_crawler_thread(void) {
-    int ret;
+    // int ret;
 
     if (settings.lru_crawler)
         return -1;
     mutex_lock(&lru_crawler_lock);
     do_run_lru_crawler_thread = 1;
-    waitgroup_init(&item_crawler_wg);
-    waitgroup_add(&item_crawler_wg, 1);
-    if ((ret = thread_spawn(item_crawler_thread, NULL)) != 0) {
-        fprintf(stderr, "Can't create LRU crawler thread: %s\n",
-            strerror(ret));
-        mutex_unlock(&lru_crawler_lock);
-        waitgroup_done(&item_crawler_wg);
-        return -1;
-    }
+    // waitgroup_init(&item_crawler_wg);
+    // waitgroup_add(&item_crawler_wg, 1);
+    BUG_ON(pthread_create(&item_crawler_wg, NULL, item_crawler_thread, NULL));
+    // if ((ret = thread_spawn(item_crawler_thread, NULL)) != 0) {
+    //     fprintf(stderr, "Can't create LRU crawler thread: %s\n",
+    //         strerror(ret));
+    //     mutex_unlock(&lru_crawler_lock);
+    //     waitgroup_done(&item_crawler_wg);
+    //     return -1;
+    // }
     /* Avoid returning until the crawler has actually started */
     condvar_wait(&lru_crawler_cond, &lru_crawler_lock);
     mutex_unlock(&lru_crawler_lock);

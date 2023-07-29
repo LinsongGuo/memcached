@@ -121,7 +121,8 @@ typedef struct _logentry {
 #define LOG_RAWCMDS    (1<<9) /* raw ascii commands */
 
 typedef struct _logger {
-    struct rcu_hlist_node rculink;
+    struct _logger *link;
+    // struct rcu_hlist_node rculink;
     mutex_t mutex; /* guard for this + *buf */
     uint64_t written; /* entries written to the buffer */
     uint64_t dropped; /* entries dropped */

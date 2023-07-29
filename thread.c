@@ -76,14 +76,14 @@ unsigned int item_lock_hashpower;
 #define hashsize(n) ((unsigned long int)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
-static PHYS_THREAD *threads;
-__thread PHYS_THREAD *mythr_ptr = NULL;
+PHYS_THREAD *threads;
+// __thread PHYS_THREAD *mythr_ptr = NULL;
 
 /*
  * Number of worker threads that have finished setting themselves up.
  */
-static int init_count = 0;
-static DEFINE_SPINLOCK(init_lock);
+// static int init_count = 0;
+// static DEFINE_SPINLOCK(init_lock);
 
 
 /* item_lock() must be held for an item before any modifications to either its
@@ -536,7 +536,10 @@ void redispatch_conn(conn *c) {
     }
 #endif
     c->state = conn_new_cmd;
-    thread_spawn(drive_machine, c);
+    pthread_t tid;
+    BUG_ON(pthread_create(&tid, NULL, drive_machine, c));
+    BUG_ON(pthread_detach(tid));
+    // thread_spawn(drive_machine, c);
 }
 
 /* This misses the allow_new_conns flag :( */
@@ -554,10 +557,13 @@ void sidethread_conn_close(conn *c) {
     return;
 #endif
     c->state = conn_closing;
-    thread_spawn(drive_machine, c);
+    pthread_t tid;
+    BUG_ON(pthread_create(&tid, NULL, drive_machine, c));
+    BUG_ON(pthread_detach(tid));
+    // thread_spawn(drive_machine, c);
 }
 
-
+#if 0
 int memcached_perthread_init(void) {
     spin_lock(&init_lock);
     BUG_ON(mythr_ptr != NULL);
@@ -573,7 +579,7 @@ int memcached_perthread_init(void) {
 
     return 0;
 }
-
+#endif
 /********************************* ITEM ACCESS *******************************/
 
 /*
@@ -764,6 +770,8 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     }
 }
 
+unsigned long nthrs;
+
 /*
  * Initializes the thread subsystem, creating various worker threads.
  *
@@ -777,7 +785,7 @@ void memcached_thread_init(int nthreads, void *arg) {
         mutex_init(&lru_locks[i]);
     }
 
-    spin_lock_init(&init_lock);
+    // spin_lock_init(&init_lock);
 
     /* Want a wide lock table, but don't waste memory */
     if (nthreads < 3) {
@@ -820,6 +828,7 @@ void memcached_thread_init(int nthreads, void *arg) {
         exit(1);
     }
 
+    nthrs = nthreads;
     for (i = 0; i < nthreads; i++) {
 #if 0
         int fds[2];
@@ -835,6 +844,15 @@ void memcached_thread_init(int nthreads, void *arg) {
 #endif
 
 #endif
+
+        threads[i].l = logger_create();
+        threads[i].lru_bump_buf = item_lru_bump_buf_create();
+
+        if (threads[i].l == NULL || threads[i].lru_bump_buf == NULL) {
+            abort();
+        }
+
+
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats_state.reserved_fds += 5;

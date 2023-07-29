@@ -190,13 +190,13 @@ void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
 }
 
 
-static waitgroup_t assoc_maintenance_thread_wg;
+static pthread_t assoc_maintenance_thread_wg;
 static volatile int do_run_maintenance_thread = 1;
 
 #define DEFAULT_HASH_BULK_MOVE 1
 int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
-static void assoc_maintenance_thread(void *arg) {
+static void *assoc_maintenance_thread(void *arg) {
     mutex_lock(&maintenance_lock);
     while (do_run_maintenance_thread) {
         int ii = 0;
@@ -259,7 +259,8 @@ static void assoc_maintenance_thread(void *arg) {
             pause_threads(RESUME_ALL_THREADS);
         }
     }
-    waitgroup_done(&assoc_maintenance_thread_wg);
+    return NULL;
+    // waitgroup_done(&assoc_maintenance_thread_wg);
 }
 
 
@@ -272,14 +273,16 @@ int start_assoc_maintenance_thread() {
             hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
         }
     }
-    waitgroup_init(&assoc_maintenance_thread_wg);
-    waitgroup_add(&assoc_maintenance_thread_wg, 1);
+    // waitgroup_init(&assoc_maintenance_thread_wg);
+    // waitgroup_add(&assoc_maintenance_thread_wg, 1);
     mutex_init(&maintenance_lock);
-    if ((ret = thread_spawn(assoc_maintenance_thread, NULL)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
-        waitgroup_done(&assoc_maintenance_thread_wg);
-        return -1;
-    }
+    ret = pthread_create(&assoc_maintenance_thread_wg, NULL, assoc_maintenance_thread, NULL);
+    BUG_ON(ret);
+    // if ((ret = thread_spawn(assoc_maintenance_thread, NULL)) != 0) {
+    //     fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
+    //     waitgroup_done(&assoc_maintenance_thread_wg);
+    //     return -1;
+    // }
     return 0;
 }
 
@@ -290,6 +293,7 @@ void stop_assoc_maintenance_thread() {
     mutex_unlock(&maintenance_lock);
 
     /* Wait for the maintenance thread to stop */
-    waitgroup_wait(&assoc_maintenance_thread_wg);
+    pthread_join(assoc_maintenance_thread_wg, NULL);
+    // waitgroup_wait(&assoc_maintenance_thread_wg);
 }
 

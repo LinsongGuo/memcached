@@ -26,6 +26,8 @@
 #include <ctype.h>
 #include <stdarg.h>
 
+#include <netinet/tcp.h>
+
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
 #ifndef _P1003_1B_VISIBLE
@@ -45,6 +47,8 @@
 #include <sysexits.h>
 #include <stddef.h>
 
+#include <arpa/inet.h>
+
 #ifdef HAVE_GETOPT_LONG
 #include <getopt.h>
 #endif
@@ -61,15 +65,17 @@
 #endif
 #endif
 
-#define htonll(x) hton64(x)
-#define htonl(x) hton32(x)
-#define htons(x) hton16(x)
-#define ntohll(x) ntoh64(x)
-#define ntohl(x) ntoh32(x)
-#define ntohs(x) ntoh16(x)
+// #define htonll(x) hton64(x)
+// #define htonl(x) hton32(x)
+// #define htons(x) hton16(x)
+// #define ntohll(x) ntoh64(x)
+// #define ntohl(x) ntoh32(x)
+// #define ntohs(x) ntoh16(x)
 
+#if 0
 static struct tcache *udp_conn_tcache;
 static DEFINE_PERTHREAD(struct tcache_perthread, udp_conn_tcache_pt);
+#endif
 
 /*
  * forward declarations
@@ -97,7 +103,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c);
 static void settings_init(void);
 
 /* event handling, network IO */
-static void udp_handler(struct udp_spawn_data *d);
+// static void udp_handler(struct udp_spawn_data *d);
 static void conn_close(conn *c);
 conn *conn_new(enum conn_states init_state,
                 const int read_buffer_size,
@@ -225,7 +231,7 @@ static void settings_init(void) {
     settings.use_cas = true;
     settings.access = 0700;
     settings.port = 0;
-    settings.udpport = 11211;
+    settings.udpport = 0;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -336,7 +342,7 @@ static uint64_t nactiveconns;
 
 #define CONNS_PER_SLICE 100
 
-static void conn_timeout_thread(void *arg) {
+static void *conn_timeout_thread(void *arg) {
     int i;
     conn *c;
     rel_time_t oldest_last_cmd;
@@ -373,8 +379,8 @@ static void conn_timeout_thread(void *arg) {
                 continue;
 
             if ((current_time - c->last_cmd_time) > settings.idle_timeout) {
-                log_debug("Aborting idle connection with port %d", tcp_remote_addr(c->tcp_conn).port);
-                tcp_abort(c->tcp_conn);
+                fprintf(stderr, "Aborting idle connection\n"); //, tcp_remote_addr(c->tcp_conn).port);
+                shutdown(c->tcp_conn_fd, SHUT_RDWR);
             } else {
                 if (c->last_cmd_time < oldest_last_cmd)
                     oldest_last_cmd = c->last_cmd_time;
@@ -396,6 +402,8 @@ static void conn_timeout_thread(void *arg) {
     }
 
     mutex_unlock(&tcp_conn_lock);
+
+    return NULL;
 
 }
 
@@ -767,6 +775,7 @@ void conn_free(conn *c) {
     }
 }
 
+#if 0
 static void conn_tcache_free(struct tcache *tc, int nr, void **items)
 {
     for (int i = 0; i < nr; i++)
@@ -790,7 +799,7 @@ static int udp_conn_tcache_alloc(struct tcache *tc, int nr, void **items)
 static const struct tcache_ops udp_conn_tcache_ops = {
     .alloc = udp_conn_tcache_alloc, .free = conn_tcache_free,
 };
-
+#endif
 static void conn_close(conn *c) {
     assert(c != NULL);
 
@@ -812,12 +821,13 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c);
 
-    if (likely(IS_UDP(c->transport))) {
-        conn_set_state(c, conn_parse_cmd);
-        udp_spawn_data_release(c->spawn_data->release_data);
-        preempt_disable();
-        tcache_free(&perthread_get(udp_conn_tcache_pt), c);
-        preempt_enable();
+    if (IS_UDP(c->transport)) {
+        abort();
+        // conn_set_state(c, conn_parse_cmd);
+        // udp_spawn_data_release(c->spawn_data->release_data);
+        // preempt_disable();
+        // tcache_free(&perthread_get(udp_conn_tcache_pt), c);
+        // preempt_enable();
     } else {
         mutex_lock(&tcp_conn_lock);
         active_tcp_conns[c->idx] = active_tcp_conns[--nactiveconns];
@@ -826,8 +836,9 @@ static void conn_close(conn *c) {
             active_tcp_conns[c->idx]->idx = c->idx;
         c->idx = -1;
         mutex_unlock(&tcp_conn_lock);
-        tcp_abort(c->tcp_conn);
-        tcp_close(c->tcp_conn);
+        shutdown(c->tcp_conn_fd, SHUT_RDWR);
+        // tcp_abort(c->tcp_conn);
+        close(c->tcp_conn_fd);
         conn_free(c);
     }
 
@@ -1199,7 +1210,7 @@ static void complete_nread_ascii(conn *c) {
         if (strncmp(buf, "\r\n", 2) == 0) {
             is_valid = true;
         } else {
-            BUG();
+            abort();
         }
     }
 
@@ -1311,7 +1322,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     header->response.cas = htonll(c->cas);
 
 
-    header->response.cas = htonll(rdtsc());
+    // header->response.cas = htonll(rdtsc());
     if (settings.verbose > 1) {
         int ii;
         fprintf(stderr, ">%p Writing bin response:", c);
@@ -5144,7 +5155,7 @@ static enum try_read_result try_read_network(conn *c) {
             c->rsize *= 2;
         }
         int avail = c->rsize - c->rbytes;
-        res = tcp_read(c->tcp_conn, c->rbuf + c->rbytes, avail);
+        res = read(c->tcp_conn_fd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             STATS_LOCAL_LOCK();
             mythr()->stats.bytes_read += res;
@@ -5249,10 +5260,11 @@ static enum transmit_result transmit(conn *c) {
     if (c->msgcurr < c->msgused) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
-        if (IS_UDP(c->transport))
-            res = udp_respondv(m->msg_iov, m->msg_iovlen, c->spawn_data);
-        else
-            res = tcp_writev(c->tcp_conn, m->msg_iov, m->msg_iovlen);
+        if (IS_UDP(c->transport)) {
+            abort();
+            // res = udp_respondv(m->msg_iov, m->msg_iovlen, c->spawn_data);
+        } else
+            res = writev(c->tcp_conn_fd, m->msg_iov, m->msg_iovlen);
         if (res > 0) {
             STATS_LOCAL_LOCK();
             mythr()->stats.bytes_written += res;
@@ -5338,7 +5350,7 @@ static int read_into_chunked_item(conn *c) {
             if (IS_UDP(c->transport)) {
                 res = 0;
             } else {
-                res = tcp_read(c->tcp_conn, ch->data + ch->used,
+                res = read(c->tcp_conn_fd, ch->data + ch->used,
                                     (unused > c->rlbytes ? c->rlbytes : unused));
             }
             if (res > 0) {
@@ -5373,7 +5385,7 @@ static int read_into_chunked_item(conn *c) {
     return total;
 }
 
-void drive_machine(void *arg) {
+void *drive_machine(void *arg) {
     conn *c = arg;
     bool stop = false;
     int nreqs = settings.reqs_per_event;
@@ -5458,7 +5470,8 @@ void drive_machine(void *arg) {
 #endif
 
         case conn_read:
-            BUG_ON(IS_UDP(c->transport));
+            if (IS_UDP(c->transport))
+                abort();
             res = try_read_network(c);
             switch (res) {
             case READ_NO_DATA_RECEIVED:
@@ -5536,7 +5549,7 @@ void drive_machine(void *arg) {
                 if (IS_UDP(c->transport)) {
                     res = 0;
                 } else {
-                    res = tcp_read(c->tcp_conn, c->ritem, c->rlbytes);
+                    res = read(c->tcp_conn_fd, c->ritem, c->rlbytes);
                 }
                 if (res > 0) {
                     STATS_LOCAL_LOCK();
@@ -5667,7 +5680,7 @@ void drive_machine(void *arg) {
                 break;
 
             case TRANSMIT_SOFT_ERROR:
-                thread_yield();
+                sched_yield();
                 break;
 
             case TRANSMIT_INCOMPLETE:
@@ -5688,7 +5701,7 @@ void drive_machine(void *arg) {
         case conn_watch:
             /* We handed off our connection to the logger thread. */
             stop = true;
-            return;
+            return 0;
 
         case conn_max_state:
             BUG();
@@ -5699,24 +5712,24 @@ void drive_machine(void *arg) {
     BUG_ON(c->state != conn_closing);
     conn_close(c);
 
-    return;
+    return 0;
 }
 
-static void handle_tcp_conn(void *arg)
+static void *handle_tcp_conn(void *arg)
 {
-    tcpconn_t *tconn = arg;
+    int64_t tconn = (int64_t)arg;
     conn *c = conn_new(conn_read, DATA_BUFFER_SIZE, tcp_transport);
     if (!c)
         goto abort_conn;
 
     c->last_cmd_time = current_time;
-    c->tcp_conn = tconn;
+    c->tcp_conn_fd = tconn;
 
 
     mutex_lock(&tcp_conn_lock);
     if (nactiveconns == settings.maxconns) {
         mutex_unlock(&tcp_conn_lock);
-        log_err("MAX CONNS REACHED");
+        fprintf(stderr, "MAX CONNS REACHED\n");
         conn_free(c);
         goto abort_conn;
     }
@@ -5725,15 +5738,23 @@ static void handle_tcp_conn(void *arg)
     active_tcp_conns[c->idx] = c;
     mutex_unlock(&tcp_conn_lock);
 
+    int flags =1;
+    setsockopt(c->tcp_conn_fd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+    // if (error != 0)
+    //     perror("setsockopt");
+
+
     drive_machine(c);
 
-    return;
+    return NULL;
 
 abort_conn:
-    tcp_abort(tconn);
-    tcp_close(tconn);
+    shutdown(tconn, SHUT_RDWR);
+    close(tconn);
+    return NULL;
 }
 
+#if 0
 static void udp_handler(struct udp_spawn_data *d) {
     conn *c;
 
@@ -5774,6 +5795,7 @@ static void udp_handler(struct udp_spawn_data *d) {
 
     drive_machine(c);
 }
+#endif
 
 #if 0
 void event_handler(const int fd, const short which, void *arg) {
@@ -6162,7 +6184,7 @@ volatile rel_time_t current_time;
  * from jitter, simply ticking our internal timer here is accurate enough.
  * Note that users who are setting explicit dates for expiration times *must*
  * ensure their clocks are correct before starting memcached. */
-static void clock_thread(void *arg) {
+static void *clock_thread(void *arg) {
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
     static bool monotonic = false;
     static time_t monotonic_start;
@@ -6177,7 +6199,7 @@ static void clock_thread(void *arg) {
 #endif
 
     while (1) {
-        timer_sleep(ONE_SECOND);
+        sleep(1);
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
         if (monotonic) {
             struct timespec ts;
@@ -6193,6 +6215,7 @@ static void clock_thread(void *arg) {
             current_time = (rel_time_t) (tv.tv_sec - process_started);
         }
     }
+    return NULL;
 }
 
 static void usage(void) {
@@ -7524,7 +7547,9 @@ static void validate_settings(void)
 static int memcached_init(void) {
 
     /* Set threads based on max kthreads */
-    settings.num_threads = runtime_max_cores();
+    settings.num_threads = sysconf(_SC_NPROCESSORS_ONLN);
+
+    fprintf(stderr, "setting up %d threads\n", settings.num_threads);
 
     /* Run regardless of initializing it later */
     init_lru_maintainer();
@@ -7626,9 +7651,9 @@ static int memcached_init(void) {
 
     memcached_thread_init(settings.num_threads, NULL);
 
-    udp_conn_tcache = tcache_create("udp_conn_tcache", &udp_conn_tcache_ops,
-                                TCACHE_DEFAULT_MAG_SIZE, sizeof(conn));
-    BUG_ON(udp_conn_tcache == NULL);
+    // udp_conn_tcache = tcache_create("udp_conn_tcache", &udp_conn_tcache_ops,
+                                // TCACHE_DEFAULT_MAG_SIZE, sizeof(conn));
+    // BUG_ON(udp_conn_tcache == NULL);
 
     return 0;
 }
@@ -7691,7 +7716,8 @@ static void memcached_main(void *arg)
     }
 
     /* initialise clock event */
-    ret = thread_spawn(clock_thread, NULL);
+    pthread_t clock_th;
+    ret = pthread_create(&clock_th, NULL, clock_thread, NULL);
     BUG_ON(ret);
 
 #if 0
@@ -7761,8 +7787,11 @@ static void memcached_main(void *arg)
 
     mutex_init(&tcp_conn_lock);
 
-    if (settings.idle_timeout)
-        thread_spawn(conn_timeout_thread, NULL);
+    if (settings.idle_timeout) {
+        pthread_t t;
+        int r = pthread_create(&t, NULL, conn_timeout_thread, NULL);
+        BUG_ON(r);
+    }
 
     if (pid_file != NULL) {
         save_pid(pid_file);
@@ -7779,6 +7808,8 @@ static void memcached_main(void *arg)
     BUG_ON(!settings.udpport && !settings.port);
 
     if (settings.udpport) {
+        abort();
+#if 0
         struct netaddr l_udp = {
             .ip = 0,
             .port = settings.udpport
@@ -7787,31 +7818,47 @@ static void memcached_main(void *arg)
         udpspawner_t *spawner;
         ret = udp_create_spawner(l_udp, udp_handler, &spawner);
         BUG_ON(ret);
+#endif
     }
 
     if (settings.port) {
-        struct netaddr l_tcp = {
-            .ip = 0,
-            .port = settings.port
-        };
 
-        tcpqueue_t *queue;
-        ret = tcp_listen(l_tcp, settings.backlog, &queue);
-        BUG_ON(ret);
+        int accept_fd = socket(AF_INET, SOCK_STREAM, 0);
+        BUG_ON(accept_fd < 0);
+
+        struct sockaddr_in in = {0};
+        in.sin_family = AF_INET;
+        in.sin_port = htons(settings.port);
+
+        int ret = bind(accept_fd, (struct sockaddr *)&in, sizeof(in));
+        BUG_ON(ret != 0);
+
+        ret = listen(accept_fd, settings.backlog);
+        BUG_ON(ret != 0);
 
         // Accept new connections
         while (true) {
-            tcpconn_t *conn;
-            ret = tcp_accept(queue, &conn);
+            int nfd = accept(accept_fd, NULL, NULL);
+            BUG_ON(nfd < 0);
+
+            pthread_t thread;
+            int ret = pthread_create(&thread, NULL, handle_tcp_conn, (void *)(int64_t)nfd);
             BUG_ON(ret);
-            thread_spawn(handle_tcp_conn, conn);
+
+            ret = pthread_detach(thread);
+            BUG_ON(ret);
+
+
+            // thread_ spawn(handle_tcp_conn, conn);
         }
+    } else {
+        abort();
     }
 
-    waitgroup_t wg;
-    waitgroup_init(&wg);
-    waitgroup_add(&wg, 1);
-    waitgroup_wait(&wg);
+    // waitgroup_t wg;
+    // waitgroup_init(&wg);
+    // waitgroup_add(&wg, 1);
+    // waitgroup_wait(&wg);
 
     stop_assoc_maintenance_thread();
 #if 0
@@ -7836,11 +7883,13 @@ static void memcached_main(void *arg)
     exit(EXIT_SUCCESS);
 }
 
+#if 0
+
 int perthread_initializer(void);
 
 int perthread_initializer(void)
 {
-    tcache_init_perthread(udp_conn_tcache, &perthread_get(udp_conn_tcache_pt));
+   tcache_init_perthread(udp_conn_tcache, &perthread_get(udp_conn_tcache_pt));
 
     return memcached_perthread_init();
 }
@@ -7868,14 +7917,15 @@ int late_initializer(void)
     preempt_enable();
     return i == NREP ? 0 : -1;
 }
+#endif
 
 int main(int argc, char **argv) {
     int ret;
 
-    if (argc < 2) {
-            printf("arg must be config file\n");
-            return -EINVAL;
-    }
+    // if (argc < 2) {
+    //         printf("arg must be config file\n");
+    //         return -EINVAL;
+    // }
 
     /* init settings */
     settings_init();
@@ -7887,21 +7937,25 @@ int main(int argc, char **argv) {
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
 
-    char *cfgpath = argv[1];
-    argv[1] = argv[0];
+    // char *cfgpath = argv[1];
+    // argv[1] = argv[0];
 
-    arg_parse(argv + 1);
+    arg_parse(argv);
 
     validate_settings();
 
-    ret = runtime_set_initializers(memcached_init, perthread_initializer, late_initializer);
+    ret = memcached_init();
+
+    // ret = runtime_set_initializers(memcached_init, perthread_initializer, late_initializer);
     BUG_ON(ret);
 
-    ret = runtime_init(cfgpath, memcached_main, argv + 1);
-    if (ret) {
-            printf("failed to start runtime\n");
-            return ret;
-    }
+    memcached_main(argv);
+
+    // ret = runtime_init(cfgpath, memcached_main, argv + 1);
+    // if (ret) {
+    //         printf("failed to start runtime\n");
+    //         return ret;
+    // }
 
     return 0;
 }
