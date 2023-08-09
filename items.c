@@ -991,9 +991,9 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             STORAGE_delete(mythr()->storage, it);
             do_item_remove(it);
             it = NULL;
-            mutex_lock(&mythr()->stats.mutex);
-            mythr()->stats.get_flushed++;
-            mutex_unlock(&mythr()->stats.mutex);
+            // mutex_lock(&mythr()->stats.mutex);
+            // mythr()->stats.get_flushed++;
+            // mutex_unlock(&mythr()->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by flush");
             }
@@ -1003,9 +1003,9 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             STORAGE_delete(mythr()->storage, it);
             do_item_remove(it);
             it = NULL;
-            mutex_lock(&mythr()->stats.mutex);
-            mythr()->stats.get_expired++;
-            mutex_unlock(&mythr()->stats.mutex);
+            // mutex_lock(&mythr()->stats.mutex);
+            // mythr()->stats.get_expired++;
+            // mutex_unlock(&mythr()->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by expire");
             }

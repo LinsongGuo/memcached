@@ -5,6 +5,8 @@
  * structures and function prototypes.
  */
 
+#pragma once
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -644,10 +646,16 @@ struct conn {
 extern unsigned long nthrs;
 extern PHYS_THREAD *threads;
 
+
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif
+ #include <sched.h>
+
 static inline int syscall_getcpu() {
-    int cpu, status;
-    status = syscall(SYS_getcpu, &cpu, NULL, NULL);
-    return (status == -1) ? status : cpu;
+    return sched_getcpu();
+//    status = syscall(SYS_getcpu, &cpu, NULL, NULL);
+//    return (status == -1) ? status : cpu;
 }
 
 static inline PHYS_THREAD *mythr(void)

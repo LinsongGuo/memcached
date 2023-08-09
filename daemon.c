@@ -34,12 +34,13 @@
 # pragma ident "$NetBSD: daemon.c,v 1.9 2003/08/07 16:42:46 agc Exp $"
 #endif
 
+#include "memcached.h"
+
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-#include "memcached.h"
 
 int daemonize(int nochdir, int noclose)
 {

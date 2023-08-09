@@ -1,3 +1,5 @@
+#include "memcached.h"
+
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
@@ -5,7 +7,6 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-#include "memcached.h"
 
 static char *uriencode_map[256];
 static char uriencode_str[768];

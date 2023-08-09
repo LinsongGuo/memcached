@@ -1183,7 +1183,7 @@ static void complete_nread_ascii(conn *c) {
     bool is_valid = false;
 
     STATS_LOCAL_LOCK();
-    mythr()->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
+    // mythr()->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     STATS_LOCAL_UNLOCK();
 
     if ((it->it_flags & ITEM_CHUNKED) == 0) {
@@ -1500,9 +1500,9 @@ static void complete_incr_bin(conn *c) {
         } else {
             STATS_LOCAL_LOCK();
             if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
-                mythr()->stats.incr_misses++;
+                // mythr()->stats.incr_misses++;
             } else {
-                mythr()->stats.decr_misses++;
+                // mythr()->stats.decr_misses++;
             }
             STATS_LOCAL_UNLOCK();
 
@@ -1523,7 +1523,7 @@ static void complete_update_bin(conn *c) {
     item *it = c->item;
 
     STATS_LOCAL_LOCK();
-    mythr()->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
+    // mythr()->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     STATS_LOCAL_UNLOCK();
 
     /* We don't actually receive the trailing two characters in the bin
@@ -1649,11 +1649,11 @@ static void process_bin_get_or_touch(conn *c) {
 
         STATS_LOCAL_LOCK();
         if (should_touch) {
-            mythr()->stats.touch_cmds++;
-            mythr()->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+            // mythr()->stats.touch_cmds++;
+            // mythr()->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
         } else {
-            mythr()->stats.get_cmds++;
-            mythr()->stats.lru_hits[it->slabs_clsid]++;
+            // mythr()->stats.get_cmds++;
+            // mythr()->stats.lru_hits[it->slabs_clsid]++;
         }
         STATS_LOCAL_UNLOCK();
 
@@ -1740,11 +1740,11 @@ static void process_bin_get_or_touch(conn *c) {
     if (failed) {
         STATS_LOCAL_LOCK();
         if (should_touch) {
-            mythr()->stats.touch_cmds++;
-            mythr()->stats.touch_misses++;
+            // mythr()->stats.touch_cmds++;
+            // mythr()->stats.touch_misses++;
         } else {
-            mythr()->stats.get_cmds++;
-            mythr()->stats.get_misses++;
+            // mythr()->stats.get_cmds++;
+            // mythr()->stats.get_misses++;
         }
         STATS_LOCAL_UNLOCK();
 
@@ -2169,7 +2169,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
         c->authenticated = true;
         write_bin_response(c, "Authenticated", 0, 0, strlen("Authenticated"));
         STATS_LOCAL_LOCK();
-        mythr()->stats.auth_cmds++;
+        // mythr()->stats.auth_cmds++;
         STATS_LOCAL_UNLOCK();
         break;
     case SASL_CONTINUE:
@@ -2185,8 +2185,8 @@ static void process_bin_complete_sasl_auth(conn *c) {
             fprintf(stderr, "Unknown sasl response:  %d\n", result);
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         STATS_LOCAL_LOCK();
-        mythr()->stats.auth_cmds++;
-        mythr()->stats.auth_errors++;
+        // mythr()->stats.auth_cmds++;
+        // mythr()->stats.auth_errors++;
         STATS_LOCAL_UNLOCK();
     }
 }
@@ -2591,7 +2591,7 @@ static void process_bin_flush(conn *c) {
     }
 
     STATS_LOCAL_LOCK();
-    mythr()->stats.flush_cmds++;
+    // mythr()->stats.flush_cmds++;
     STATS_LOCAL_UNLOCK();
 
     write_bin_response(c, NULL, 0, 0, 0);
@@ -2626,7 +2626,7 @@ static void process_bin_delete(conn *c) {
         if (cas == 0 || cas == ITEM_get_cas(it)) {
             MEMCACHED_COMMAND_DELETE(c, ITEM_key(it), it->nkey);
             STATS_LOCAL_LOCK();
-            mythr()->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
+            // mythr()->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             STATS_LOCAL_UNLOCK();
             item_unlink(it);
             STORAGE_delete(mythr()->storage, it);
@@ -2638,7 +2638,7 @@ static void process_bin_delete(conn *c) {
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         STATS_LOCAL_LOCK();
-        mythr()->stats.delete_misses++;
+        // mythr()->stats.delete_misses++;
         STATS_LOCAL_UNLOCK();
     }
 }
@@ -2841,7 +2841,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             // LRU expired
             stored = NOT_FOUND;
             STATS_LOCAL_LOCK();
-            mythr()->stats.cas_misses++;
+            // mythr()->stats.cas_misses++;
             STATS_LOCAL_UNLOCK();
         }
         else if (ITEM_get_cas(it) == ITEM_get_cas(old_it)) {
@@ -2849,7 +2849,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
             STATS_LOCAL_LOCK();
-            mythr()->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+            // mythr()->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
             STATS_LOCAL_UNLOCK();
 
             STORAGE_delete(mythr()->storage, old_it);
@@ -2857,7 +2857,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             stored = STORED;
         } else {
             STATS_LOCAL_LOCK();
-            mythr()->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
+            // mythr()->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
             STATS_LOCAL_UNLOCK();
 
             if(settings.verbose > 1) {
@@ -3938,11 +3938,11 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 /* item_get() has incremented it->refcount for us */
                 STATS_LOCAL_LOCK();
                 if (should_touch) {
-                    mythr()->stats.touch_cmds++;
-                    mythr()->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+                    // mythr()->stats.touch_cmds++;
+                    // mythr()->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
                 } else {
-                    mythr()->stats.lru_hits[it->slabs_clsid]++;
-                    mythr()->stats.get_cmds++;
+                    // mythr()->stats.lru_hits[it->slabs_clsid]++;
+                    // mythr()->stats.get_cmds++;
                 }
                 STATS_LOCAL_UNLOCK();
 #ifdef EXTSTORE
@@ -3958,11 +3958,11 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             } else {
                 STATS_LOCAL_LOCK();
                 if (should_touch) {
-                    mythr()->stats.touch_cmds++;
-                    mythr()->stats.touch_misses++;
+                    // mythr()->stats.touch_cmds++;
+                    // mythr()->stats.touch_misses++;
                 } else {
-                    mythr()->stats.get_misses++;
-                    mythr()->stats.get_cmds++;
+                    // mythr()->stats.get_misses++;
+                    // mythr()->stats.get_cmds++;
                 }
                 MEMCACHED_COMMAND_GET(c, key, nkey, -1, 0);
                 STATS_LOCAL_UNLOCK();
@@ -4128,16 +4128,16 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     it = item_touch(key, nkey, realtime(exptime_int), c);
     if (it) {
         STATS_LOCAL_LOCK();
-        mythr()->stats.touch_cmds++;
-        mythr()->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+        // mythr()->stats.touch_cmds++;
+        // mythr()->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
         STATS_LOCAL_UNLOCK();
 
         out_string(c, "TOUCHED");
         item_remove(it);
     } else {
         STATS_LOCAL_LOCK();
-        mythr()->stats.touch_cmds++;
-        mythr()->stats.touch_misses++;
+        // mythr()->stats.touch_cmds++;
+        // mythr()->stats.touch_misses++;
         STATS_LOCAL_UNLOCK();
 
         out_string(c, "NOT_FOUND");
@@ -4180,9 +4180,9 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     case DELTA_ITEM_NOT_FOUND:
         STATS_LOCAL_LOCK();
         if (incr) {
-            mythr()->stats.incr_misses++;
+            // mythr()->stats.incr_misses++;
         } else {
-            mythr()->stats.decr_misses++;
+            // mythr()->stats.decr_misses++;
         }
         STATS_LOCAL_UNLOCK();
 
@@ -4254,9 +4254,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 
     STATS_LOCAL_LOCK();
     if (incr) {
-        mythr()->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
+        // mythr()->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
     } else {
-        mythr()->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+        // mythr()->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
     }
     STATS_LOCAL_UNLOCK();
 
@@ -4354,7 +4354,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         MEMCACHED_COMMAND_DELETE(c, ITEM_key(it), it->nkey);
 
         STATS_LOCAL_LOCK();
-        mythr()->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
+        // mythr()->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
         STATS_LOCAL_UNLOCK();
 
         item_unlink(it);
@@ -4363,7 +4363,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         out_string(c, "DELETED");
     } else {
         STATS_LOCAL_LOCK();
-        mythr()->stats.delete_misses++;
+        // mythr()->stats.delete_misses++;
         STATS_LOCAL_UNLOCK();
 
         out_string(c, "NOT_FOUND");
@@ -4705,7 +4705,7 @@ static void process_command(conn *c, char *command) {
         set_noreply_maybe(c, tokens, ntokens);
 
         STATS_LOCAL_LOCK();
-        mythr()->stats.flush_cmds++;
+        // mythr()->stats.flush_cmds++;
         STATS_LOCAL_UNLOCK();
 
         if (!settings.flush_enabled) {
@@ -5158,7 +5158,7 @@ static enum try_read_result try_read_network(conn *c) {
         res = read(c->tcp_conn_fd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             STATS_LOCAL_LOCK();
-            mythr()->stats.bytes_read += res;
+            // mythr()->stats.bytes_read += res;
             STATS_LOCAL_UNLOCK();
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
@@ -5267,7 +5267,7 @@ static enum transmit_result transmit(conn *c) {
             res = writev(c->tcp_conn_fd, m->msg_iov, m->msg_iovlen);
         if (res > 0) {
             STATS_LOCAL_LOCK();
-            mythr()->stats.bytes_written += res;
+            // mythr()->stats.bytes_written += res;
             STATS_LOCAL_UNLOCK();
 
             /* We've written some of the data. Remove the completed
@@ -5355,7 +5355,7 @@ static int read_into_chunked_item(conn *c) {
             }
             if (res > 0) {
                 STATS_LOCAL_LOCK();
-                mythr()->stats.bytes_read += res;
+                // mythr()->stats.bytes_read += res;
                 STATS_LOCAL_UNLOCK();
                 ch->used += res;
                 total += res;
@@ -5508,7 +5508,7 @@ void *drive_machine(void *arg) {
                 reset_cmd_handler(c);
             } else {
                 STATS_LOCAL_LOCK();
-                mythr()->stats.conn_yields++;
+                // mythr()->stats.conn_yields++;
                 STATS_LOCAL_UNLOCK();
                 // thread_yield();
                 nreqs = settings.reqs_per_event;
@@ -5553,7 +5553,7 @@ void *drive_machine(void *arg) {
                 }
                 if (res > 0) {
                     STATS_LOCAL_LOCK();
-                    mythr()->stats.bytes_read += res;
+                    // mythr()->stats.bytes_read += res;
                     STATS_LOCAL_UNLOCK();
                     if (c->rcurr == c->ritem) {
                         c->rcurr += res;
@@ -5775,7 +5775,7 @@ static void udp_handler(struct udp_spawn_data *d) {
 
     unsigned char *buf = (unsigned char *)c->rbuf;
     STATS_LOCAL_LOCK();
-    mythr()->stats.bytes_read += res;
+    // mythr()->stats.bytes_read += res;
     STATS_LOCAL_UNLOCK();
 
     /* Beginning of UDP packet is the request ID; save it. */
