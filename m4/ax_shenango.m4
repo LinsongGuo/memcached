@@ -60,6 +60,7 @@ if test $ac_cv_shenango_dir != "(system)"; then
     le_libdir="$ac_cv_shenango_dir"
     SHEN_CPPFLAGS="-I$ac_cv_shenango_dir/inc"
 fi
-SHEN_CPPFLAGS="-DNDEBUG -O3 -Wall -std=gnu11 -D_GNU_SOURCE -mssse3 $SHEN_CPPFLAGS"
+SHEN_SHIMFLAGS="-Wl,-wrap=malloc -Wl,-wrap=free -Wl,-wrap=realloc -Wl,-wrap=calloc -Wl,-wrap=aligned_alloc -Wl,-wrap=posix_memalign"
+SHEN_CPPFLAGS="-DNDEBUG -O3 -Wall -std=gnu11 -D_GNU_SOURCE -mavx512f $SHEN_SHIMFLAGS $SHEN_CPPFLAGS"
 
 ])dnl AX_SHENANGO

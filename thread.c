@@ -114,6 +114,18 @@ void item_unlock(uint32_t hv) {
     mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }
 
+void item_preemptive_unlock(uint32_t hv) {
+    int item_idx = hv & hashmask(item_lock_hashpower);
+    // printf("item_idx: %d\n", item_idx);
+    // if (item_idx == 6309) {
+    if (item_idx == 6048) {
+        preemptive_mutex_unlock(&item_locks[item_idx]);
+        // mutex_unlock(&item_locks[item_idx]);
+    } else {
+        mutex_unlock(&item_locks[item_idx]);
+    }
+}
+
 #if 0
 static void wait_for_thread_registration(int nthreads) {
     while (init_count < nthreads) {
@@ -596,7 +608,8 @@ item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update
     hv = hash(key, nkey);
     item_lock(hv);
     it = do_item_get(key, nkey, hv, c, do_update);
-    item_unlock(hv);
+    // item_unlock(hv);
+    item_preemptive_unlock(hv);
     return it;
 }
 
@@ -634,7 +647,8 @@ void item_remove(item *item) {
 
     item_lock(hv);
     do_item_remove(item);
-    item_unlock(hv);
+    // item_unlock(hv);
+    item_preemptive_unlock(hv);
 }
 
 /*
@@ -804,6 +818,8 @@ void memcached_thread_init(int nthreads, void *arg) {
 
     item_lock_count = hashsize(power);
     item_lock_hashpower = power;
+
+    printf("item_lock_count: %d\n", item_lock_count);
 
     item_locks = calloc(item_lock_count, sizeof(mutex_t));
     if (! item_locks) {
