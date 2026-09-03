@@ -237,7 +237,7 @@ static void settings_init(void) {
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
-    settings.num_threads = 4;         /* N workers */
+    settings.num_threads = 0;         /* 0 = derive from runtime_max_cores() */
     settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
@@ -6916,7 +6916,13 @@ static void arg_parse(void *arg)
             }
             break;
         case 't':
-            fprintf(stderr, "WARNING: thread setting is controlled by shenango config file\n");
+            /* Worker count. If -t is not given, memcached_init() falls back
+             * to the runtime's core count. */
+            settings.num_threads = atoi(optarg);
+            if (settings.num_threads < 1) {
+                fprintf(stderr, "Number of threads must be greater than 0\n");
+                exit(1);
+            }
             break;
         case 'D':
             if (! optarg || ! optarg[0]) {
@@ -7523,8 +7529,14 @@ static void validate_settings(void)
 
 static int memcached_init(void) {
 
-    /* Set threads based on max kthreads */
-    settings.num_threads = runtime_max_cores();
+    /* Worker count follows the runtime's core count unless -t N set it. */
+    if (!settings.num_threads)
+        settings.num_threads = runtime_max_cores();
+
+    /* validate_settings() ran before the runtime was up, so it could not see
+     * the derived thread count; finish the derivation here. */
+    if (!settings.num_threads_per_udp)
+        settings.num_threads_per_udp = settings.num_threads;
 
     /* Run regardless of initializing it later */
     init_lru_maintainer();
