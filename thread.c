@@ -114,16 +114,18 @@ void item_unlock(uint32_t hv) {
     mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }
 
+/* MC_PREEMPT_LOCK is memcached's own opt-in, set by build_memcached.sh from
+ * run_experiment.py --lock. Deliberately NOT named PREEMPT_SYNC: that macro is
+ * owned by Caladan (build/config -> build/shared.mk) and describes what the
+ * runtime was built with. Defining it here would let the app and the runtime
+ * disagree about the same name. */
 void item_preemptive_unlock(uint32_t hv) {
     int item_idx = hv & hashmask(item_lock_hashpower);
-    // printf("item_idx: %d\n", item_idx);
-    // if (item_idx == 6309) {
-    if (item_idx == 6048) {
-        preemptive_mutex_unlock(&item_locks[item_idx]);
-        // mutex_unlock(&item_locks[item_idx]);
-    } else {
-        mutex_unlock(&item_locks[item_idx]);
-    }
+#ifdef MC_PREEMPT_LOCK
+    preemptive_mutex_unlock(&item_locks[item_idx]);
+#else
+    mutex_unlock(&item_locks[item_idx]);
+#endif
 }
 
 #if 0
