@@ -94,8 +94,19 @@ static DEFINE_SPINLOCK(init_lock);
  * without first locking and removing from the LRU.
  */
 
+/* MC_PRIORITY_LOCK is memcached's own opt-in for the priority arm, set by
+ * build_memcached.sh from run_experiment.py --lock. */
 void item_lock(uint32_t hv) {
-    mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
+    mutex_t *lock = &item_locks[hv & hashmask(item_lock_hashpower)];
+#ifdef MC_PRIORITY_LOCK
+    /* Boost only acquisitions that block: priority persists across blocking, so
+     * they wake into the high queue. The trylock is the cmpxchg mutex_lock would
+     * have done anyway. Restored by the unlock helpers. */
+    if (mutex_try_lock(lock))
+        return;
+    thread_set_priority(THREAD_PRIORITY_HIGH);
+#endif
+    mutex_lock(lock);
 }
 
 void *item_trylock(uint32_t hv) {
@@ -112,6 +123,11 @@ void item_trylock_unlock(void *lock) {
 
 void item_unlock(uint32_t hv) {
     mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
+#ifdef MC_PRIORITY_LOCK
+    /* After the unlock, so the handoff still runs high. Unconditional is safe:
+     * item locks never nest on each other. */
+    thread_set_priority(THREAD_PRIORITY_NORMAL);
+#endif
 }
 
 /* MC_PREEMPT_LOCK is memcached's own opt-in, set by build_memcached.sh from
@@ -125,6 +141,11 @@ void item_preemptive_unlock(uint32_t hv) {
     preemptive_mutex_unlock(&item_locks[item_idx]);
 #else
     mutex_unlock(&item_locks[item_idx]);
+#endif
+#ifdef MC_PRIORITY_LOCK
+    /* item_get()/item_remove() end their critical section here, not in
+     * item_unlock(), so the restore is needed on both paths. */
+    thread_set_priority(THREAD_PRIORITY_NORMAL);
 #endif
 }
 
